@@ -2,12 +2,12 @@ name:                Cluedo-Player
 version:             0.1.0.0
 -- synopsis:
 -- description:
-homepage:            https://github.com/githubuser/Cluedo-Player#readme
+homepage:            https://github.com/Dr-Lord/Cluedo-Player#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2017 Author name here
+author:              Thomas Fletcher
+maintainer:          Dr-Lord@outlook.com
+copyright:           2017 Thomas Fletcher
 category:            Web
 build-type:          Simple
 extra-source-files:  README.md
@@ -38,4 +38,4 @@ test-suite Cluedo-Player-test
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/Cluedo-Player
+  location: https://github.com/Dr-Lord/Cluedo-Player
