@@ -18,7 +18,7 @@
 
 module Lib where
 
-import qualified Data.Map.Strict as M
+import Data.Map.Strict (Map, fromList, toList, (!))
 import Data.Tuple (swap)
 
 
@@ -26,37 +26,52 @@ import Data.Tuple (swap)
 ---- 1 - EQUIPMENT RELATED DATA TYPES ------------------------------------------
 
 data Suspect = MissScarlett | ColonelMustard | MrsWhite | ReverendGreen | MrsPeacock | ProfessorPlum
-    deriving (Eq, Ord, Enum, Show, Read)
+    deriving (Eq, Ord, Enum, Bounded, Show, Read)
 
 data Weapon = Candlestick | Dagger | LeadPipe | Revolver | Rope | Spanner
-    deriving (Eq, Ord, Enum, Show, Read)
+    deriving (Eq, Ord, Enum, Bounded, Show, Read)
 
 data Room = Hall | Lounge | DiningRoom | Kitchen | Ballroom | Conservatory | BilliardRoom | Library | Study
-    deriving (Eq, Ord, Enum, Show, Read)
+    deriving (Eq, Ord, Enum, Bounded, Show, Read)
 
 data Card = Sus Suspect | Wea Weapon | Roo Room
-    deriving (Eq, Ord, Enum, Show, Read)
+    deriving (Eq, Ord, Show, Read)
+instance Enum Card where
+    toEnum i
+        | i <= 5    = Sus (toEnum  i       :: Suspect)
+        | i <= 11   = Wea (toEnum (i - 6)  :: Weapon)
+        | otherwise = Roo (toEnum (i - 12) :: Room)
+    fromEnum (Sus s) = fromEnum s
+    fromEnum (Wea w) = fromEnum w + 6
+    fromEnum (Roo r) = fromEnum r + 12
 
 data Circumstances = Circumstances { suspect :: Suspect, weapon :: Weapon, room :: Room }
 
 
 -- Functions --
 
+-- Lists of all Cards and Equipment
+allCards = enumFromTo (Sus MissScarlett) (Roo Study) 
+allSuspects = enumFrom MissScarlett
+allWeapons = enumFrom Candlestick
+allRooms = enumFrom Hall
+
+
 -- Maps from Equipment to Unique Strings
-susStrs :: M.Map Suspect String
-susStrs = M.fromList [(MissScarlett, "MS"), (ColonelMustard, "CM"), (MrsWhite, "MW"), (ReverendGreen, "RG"), (MrsPeacock, "MP"), (ProfessorPlum, "PP")]
-strSuss = invertMap susStrs :: M.Map String Suspect
+fromSuspect :: Map Suspect String
+fromSuspect = fromList [(MissScarlett, "MS"), (ColonelMustard, "CM"), (MrsWhite, "MW"), (ReverendGreen, "RG"), (MrsPeacock, "MP"), (ProfessorPlum, "PP")]
+toSuspect = invertMap fromSuspect :: Map String Suspect
 
-weaStrs :: M.Map Weapon String
-weaStrs = M.fromList [(Candlestick, "Ca"), (Dagger, "Da"), (LeadPipe, "LP"), (Revolver, "Re"), (Rope, "Ro"), (Spanner, "Sp")]
-strWeas = invertMap weaStrs :: M.Map String Weapon
+fromWeapon :: Map Weapon String
+fromWeapon = fromList [(Candlestick, "Ca"), (Dagger, "Da"), (LeadPipe, "LP"), (Revolver, "Re"), (Rope, "Ro"), (Spanner, "Sp")]
+toWeapon = invertMap fromWeapon :: Map String Weapon
 
-rooStrs :: M.Map Room String
-rooStrs = M.fromList [(Hall, "Ha"), (Lounge, "Lo"), (DiningRoom, "DR"), (Kitchen, "Ki"), (Ballroom, "Ba"), (Conservatory, "Co"), (BilliardRoom, "BR"),
+fromRoom :: Map Room String
+fromRoom = fromList [(Hall, "Ha"), (Lounge, "Lo"), (DiningRoom, "DR"), (Kitchen, "Ki"), (Ballroom, "Ba"), (Conservatory, "Co"), (BilliardRoom, "BR"),
                       (Library, "Li"), (Study, "St")]
-strRoos = invertMap rooStrs :: M.Map String Room
-
+toRoom = invertMap fromRoom :: Map String Room
                     
+
 
 ---- 2 - GAMEPLAY RELATED DATA TYPES -------------------------------------------
 
@@ -64,9 +79,20 @@ data PlayerStatus = NPC | Player | Eliminated
 
 data Suggestion = Suggestion { circumstances :: Circumstances, resolver :: Suspect }
 
-data Notebook = Notebook { suspects :: M.Map Suspect (Maybe Suspect),
-                           weapons  :: M.Map Weapon  (Maybe Suspect),
-                           rooms    :: M.Map Room    (Maybe Suspect) }
+    -- The Map values are the Suspects (Players) who possibly possess that clue
+data Notebook = Notebook { suspects :: Map Suspect [Suspect],
+                           weapons  :: Map Weapon  [Suspect],
+                           rooms    :: Map Room    [Suspect] }
+-- ADD FIELDS FOR owned CLUES (3 lists) AND FOR solution (3 Maybes)
+
+-- Functions --
+
+emptyNotebook = Notebook
+    (fromList [(s, allSuspects) | s <- allSuspects])
+    (fromList [(w, allSuspects) | w <- allWeapons])
+    (fromList [(r, allSuspects) | r <- allRooms])
+
+-- UPDATE FUNCTION USING adjust
 
 
 
@@ -75,7 +101,7 @@ data Notebook = Notebook { suspects :: M.Map Suspect (Maybe Suspect),
 data LocationName = Corridor | StartOf Suspect | In Room
     deriving (Eq, Show, Read)
 
-data Location = Location { lName :: LocationName, distances :: M.Map Location Int }
+data Location = Location { lName :: LocationName, distances :: Map Location Int }
 
     -- Note that player statuses are set by giving them clues and by accusations
 data Event = GameStart | GiveClues Suspect [Card] | Roll Suspect Int | Move Suspect Location
@@ -83,15 +109,15 @@ data Event = GameStart | GiveClues Suspect [Card] | Roll Suspect Int | Move Susp
                 | Accuse  Suspect Circumstances | GameEnd
 
 data State = State { event :: Event,
-                     players :: M.Map Suspect PlayerStatus,
-                     notebooks :: M.Map Suspect Notebook,
-                     susLocs :: M.Map Suspect Location,
-                     weaLocs :: M.Map Weapon Location }
+                     players :: Map Suspect PlayerStatus,
+                     notebooks :: Map Suspect Notebook,
+                     susLocs :: Map Suspect Location,
+                     weaLocs :: Map Weapon Location }
 
 
 
 ---- 4 - UTILITY FUNCTIONS -----------------------------------------------------
 
 -- Invert a Map with guaranteed unique values
-invertMap :: Ord v => M.Map k v -> M.Map v k
-invertMap = M.fromList . map swap . M.toList
+invertMap :: Ord v => Map k v -> Map v k
+invertMap = fromList . map swap . toList
