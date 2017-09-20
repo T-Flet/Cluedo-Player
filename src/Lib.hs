@@ -18,8 +18,10 @@
 
 module Lib where
 
-import Data.Map.Strict (Map, fromList, toList, (!))
+import Data.Map.Strict (Map, fromList, toList, (!), adjust, mapWithKey)
+import qualified Data.Map.Strict as M (filter) 
 import Data.Tuple (swap)
+import Data.List ((\\), intercalate, delete)
 
 
 
@@ -72,6 +74,14 @@ fromRoom = fromList [(Hall, "Ha"), (Lounge, "Lo"), (DiningRoom, "DR"), (Kitchen,
 toRoom = invertMap fromRoom :: Map String Room
                     
 
+-- Split Cards into each equipment type
+toEquip :: [Card] -> ([Suspect], [Weapon], [Room])
+toEquip = foldr addEquip ([], [], [])
+    where addEquip (Sus s) (ss, ws, rs) = (s:ss, ws, rs)
+          addEquip (Wea w) (ss, ws, rs) = (ss, w:ws, rs)
+          addEquip (Roo r) (ss, ws, rs) = (ss, ws, r:rs)
+
+
 
 ---- 2 - GAMEPLAY RELATED DATA TYPES -------------------------------------------
 
@@ -79,20 +89,87 @@ data PlayerStatus = NPC | Player | Eliminated
 
 data Suggestion = Suggestion { circumstances :: Circumstances, resolver :: Suspect }
 
-    -- The Map values are the Suspects (Players) who possibly possess that clue
-data Notebook = Notebook { suspects :: Map Suspect [Suspect],
-                           weapons  :: Map Weapon  [Suspect],
-                           rooms    :: Map Room    [Suspect] }
--- ADD FIELDS FOR owned CLUES (3 lists) AND FOR solution (3 Maybes)
+    -- The [[Card]] value is the list of possible sets of cards each player could have
+    -- The [Suspect] values are the Players who possibly possess that clue
+data Notebook = Notebook { suspectCards :: Map Suspect [[Card]],
+                           suspectMap :: Map Suspect [Suspect],
+                           weaponMap  :: Map Weapon  [Suspect],
+                           roomMap    :: Map Room    [Suspect] }
+    deriving (Eq)
+instance Show Notebook where
+    show nb = " \n\
+\   NOTEBOOK: \n\n\
+\   Known Owned Cards: \n\
+\       " ++ showMap (suspectCards nb) ++ " \n\n\
+\   Suspects Possible Owners: \n\
+\       " ++ showMap (suspectMap nb) ++ " \n\n\
+\   Weapons Possible Owners: \n\
+\       " ++ showMap (weaponMap nb) ++ " \n\n\
+\   Rooms Possible Owners: \n\
+\       " ++ showMap (roomMap nb) ++ " \n\n\
+\ "
+        where showMap :: (Show k, Show v) => Map k v -> String
+              showMap = intercalate "\n\
+\       " . map showEntry . toList
+              showEntry (k,v) = show k ++ ": " ++ show v
+
 
 -- Functions --
 
+solved :: Show k => Map k [Suspect] -> Maybe k
+solved equipMap = case map fst . toList $ M.filter null equipMap of
+    [sol] -> Just sol
+    []    -> Nothing
+    more  -> error $ "Something went wrong; there are multiple supposed solutions: " ++ show more
+
+known :: Map k [Suspect] -> Map k [Suspect]
+known = M.filter ((== 1) . length)
+
+unknown :: Map k [Suspect] -> Map k [Suspect]
+unknown = M.filter ((/= 1) . length)
+
+ownedBy :: Suspect -> Map k [Suspect] -> Map k [Suspect]
+ownedBy sus = M.filter (== [sus])
+-- CHANGE TO USE suspectCards!!!!!!!!!!!!
+
+
 emptyNotebook = Notebook
+    (fromList [(s,[]) | s <- allSuspects])
     (fromList [(s, allSuspects) | s <- allSuspects])
     (fromList [(w, allSuspects) | w <- allWeapons])
     (fromList [(r, allSuspects) | r <- allRooms])
 
--- UPDATE FUNCTION USING adjust
+
+
+    
+-- INITIAL SET-UP OF Notebook BY REMOVING ONESELF AND NPCS (AND ADDING CLUES)?
+-- ADDING A Suggestion TO THE NOTEBOOK
+
+-- WRITE TESTS FOR COMPLEX FUNCTIONS
+
+
+    -- Add some Suspects not owning some Cards to the Notebook
+    -- I.e.: Remove given possible owners from given equipment and the equipment cards from the owners
+doNotOwn :: [Suspect] -> [Card] -> Notebook -> Notebook
+doNotOwn suss cards (Notebook sC sM wM rM) = Notebook newSusCards newSMap newWMap newRMap
+    where newSusCards = foldr (adjust (map (\\ cards))) sC suss
+          newSMap = foldr (adjust (\\ suss)) sM ss
+          newWMap = foldr (adjust (\\ suss)) wM ws
+          newRMap = foldr (adjust (\\ suss)) rM rs
+          (ss, ws, rs) = toEquip cards
+
+    -- Add a single certain newly-acquired clue to the Notebook
+    -- I.e.: Set the Card's equipment owner to the player and add the owned card the owner
+owns :: Suspect -> Card -> Notebook -> Notebook
+owns sus card (Notebook sC sM wM rM) = Notebook newSusCards newSMap newWMap newRMap 
+    where newSusCards = mapWithKey updateOwners sC
+          updateOwners s css
+            | s == sus  = if [card] `elem` css then css else [card]:css 
+            | otherwise = map (delete card) css
+          (newSMap, newWMap, newRMap) = case card of
+            Sus s -> (adjust (\_-> [sus]) s sM, wM, rM)
+            Wea w -> (sM, adjust (\_-> [sus]) w wM, rM)
+            Roo r -> (sM, wM, adjust (\_-> [sus]) r rM)
 
 
 
