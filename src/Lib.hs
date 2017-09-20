@@ -18,7 +18,7 @@
 
 module Lib where
 
-import Data.Map.Strict (Map, fromList, toList, (!), adjust, mapWithKey)
+import Data.Map.Strict (Map, keys, fromList, toList, (!), adjust, mapWithKey)
 import qualified Data.Map.Strict as M (filter) 
 import Data.Tuple (swap)
 import Data.List ((\\), intercalate, delete)
@@ -59,7 +59,7 @@ allWeapons = enumFrom Candlestick
 allRooms = enumFrom Hall
 
 
--- Maps from Equipment to Unique Strings
+-- Maps (NOT FUNCTIONS; use: map ! key) from Equipment to Unique Strings and vice-versa
 fromSuspect :: Map Suspect String
 fromSuspect = fromList [(MissScarlett, "MS"), (ColonelMustard, "CM"), (MrsWhite, "MW"), (ReverendGreen, "RG"), (MrsPeacock, "MP"), (ProfessorPlum, "PP")]
 toSuspect = invertMap fromSuspect :: Map String Suspect
@@ -74,6 +74,14 @@ fromRoom = fromList [(Hall, "Ha"), (Lounge, "Lo"), (DiningRoom, "DR"), (Kitchen,
 toRoom = invertMap fromRoom :: Map String Room
                     
 
+toCard :: String -> Card
+toCard str
+    | str `elem` keys toSuspect = Sus $ toSuspect ! str
+    | str `elem` keys toWeapon  = Wea $ toWeapon  ! str
+    | str `elem` keys toRoom    = Roo $ toRoom    ! str
+    | otherwise = error $ "Invalid unique string: " ++ str
+
+
 -- Split Cards into each equipment type
 toEquip :: [Card] -> ([Suspect], [Weapon], [Room])
 toEquip = foldr addEquip ([], [], [])
@@ -87,7 +95,7 @@ toEquip = foldr addEquip ([], [], [])
 
 data PlayerStatus = NPC | Player | Eliminated
 
-data Suggestion = Suggestion { circumstances :: Circumstances, resolver :: Suspect }
+data Suggestion = Suggestion { circumstances :: Circumstances, suggester :: Suspect, unhelpful :: [Suspect], resolver :: Suspect }
 
     -- The [[Card]] value is the list of possible sets of cards each player could have
     -- The [Suspect] values are the Players who possibly possess that clue
@@ -116,6 +124,7 @@ instance Show Notebook where
 
 -- Functions --
 
+-- Notebook Queries
 solved :: Show k => Map k [Suspect] -> Maybe k
 solved equipMap = case map fst . toList $ M.filter null equipMap of
     [sol] -> Just sol
@@ -133,6 +142,7 @@ ownedBy sus = M.filter (== [sus])
 -- CHANGE TO USE suspectCards!!!!!!!!!!!!
 
 
+-- Notebook creating and updating functions
 emptyNotebook = Notebook
     (fromList [(s,[]) | s <- allSuspects])
     (fromList [(s, allSuspects) | s <- allSuspects])
