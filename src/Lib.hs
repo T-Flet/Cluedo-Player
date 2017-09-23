@@ -18,10 +18,12 @@
 
 module Lib where
 
-import Data.Map.Strict (Map, keys, fromList, toList, (!), adjust, mapWithKey)
-import qualified Data.Map.Strict as M (filter) 
+import Data.Map.Strict (Map, keys, fromList, toList, (!), adjust, mapWithKey, partitionWithKey, keys)
+import qualified Data.Map.Strict as M (filter, foldr, partition) 
 import Data.Tuple (swap)
-import Data.List ((\\), intercalate, delete)
+import Data.List ((\\), intercalate, nub)
+import Data.Set (Set, empty, singleton, delete, insert)
+import qualified Data.Set as S ((\\), fromList, toList, map, filter)
 
 
 
@@ -47,7 +49,15 @@ instance Enum Card where
     fromEnum (Wea w) = fromEnum w + 6
     fromEnum (Roo r) = fromEnum r + 12
 
+-- instance Show (Set Card) where
+    -- show = intercalate ", " . S.toList . S.map show
+    -- FIND A WAY TO ACHIEVE THIS EFFECT!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
 data Circumstances = Circumstances { suspect :: Suspect, weapon :: Weapon, room :: Room }
+    deriving (Eq, Read)
+instance Show Circumstances where
+    show (Circumstances sus wea roo) = "It was " ++ show sus ++ " with the " ++ show wea ++ " in the " ++ show roo ++ "!"
 
 
 -- Functions --
@@ -93,13 +103,25 @@ toEquip = foldr addEquip ([], [], [])
 
 ---- 2 - GAMEPLAY RELATED DATA TYPES -------------------------------------------
 
-data PlayerStatus = NPC | Player | Eliminated
+data Player = Player { pName :: String, pStatus :: PlayerStatus, pCardNum :: Int }
+    deriving (Eq, Show)
+
+data PlayerStatus = NPC | Playing | Eliminated
+    deriving (Eq, Show, Read)
 
 data Suggestion = Suggestion { circumstances :: Circumstances, suggester :: Suspect, unhelpful :: [Suspect], resolver :: Suspect }
+    deriving (Eq)
+instance Show Suggestion where
+    show (Suggestion circs sugg unhe resv) = " \n\
+\   SUGGESTION by " ++ show sugg ++ ":   " ++ show circs ++ "\n\n\
+\       Could not help: " ++ intercalate ", " (map show unhe) ++ "\n\n\
+\       Helped: " ++ show resv ++ "\n\n\
+\ " 
+
 
     -- The [[Card]] value is the list of possible sets of cards each player could have
     -- The [Suspect] values are the Players who possibly possess that clue
-data Notebook = Notebook { suspectCards :: Map Suspect [[Card]],
+data Notebook = Notebook { suspectCards :: Map Suspect (Set (Set Card)),
                            suspectMap :: Map Suspect [Suspect],
                            weaponMap  :: Map Weapon  [Suspect],
                            roomMap    :: Map Room    [Suspect] }
@@ -120,53 +142,73 @@ instance Show Notebook where
               showMap = intercalate "\n\
 \       " . map showEntry . toList
               showEntry (k,v) = show k ++ ": " ++ show v
+-- ADD Xs BEFORE LISTS IF THEY ARE OF LENGTH ONE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
 -- Functions --
 
--- Notebook Queries
+-- Notebook Card Queries
+
+    -- Return all cards known to be possessed by a specific player and then all the other known to be possessed ones
+playerOthersKnownCards :: Suspect -> Notebook -> ([Card], [Card])
+playerOthersKnownCards sus = tupleApply allKnown . partitionWithKey (\k _-> k == sus) . suspectCards
+    where allKnown = M.foldr onlyKnown []
+          onlyKnown possCards acc = singletons possCards ++ acc
+
+
+-- Notebook Maps Queries
+
 solved :: Show k => Map k [Suspect] -> Maybe k
 solved equipMap = case map fst . toList $ M.filter null equipMap of
     [sol] -> Just sol
     []    -> Nothing
     more  -> error $ "Something went wrong; there are multiple supposed solutions: " ++ show more
 
-known :: Map k [Suspect] -> Map k [Suspect]
-known = M.filter ((== 1) . length)
 
-unknown :: Map k [Suspect] -> Map k [Suspect]
-unknown = M.filter ((/= 1) . length)
+    -- Return all known and unknown equipment from an equipment map
+knownUnknown :: Map k [Suspect] -> ([k],[k])
+knownUnknown = tupleApply keys . M.partition ((== 1) . length)
 
-ownedBy :: Suspect -> Map k [Suspect] -> Map k [Suspect]
-ownedBy sus = M.filter (== [sus])
--- CHANGE TO USE suspectCards!!!!!!!!!!!!
 
+-- Interface Notebook modifiers
 
 -- Notebook creating and updating functions
 emptyNotebook = Notebook
-    (fromList [(s,[]) | s <- allSuspects])
+    (fromList [(s,empty) | s <- allSuspects])
     (fromList [(s, allSuspects) | s <- allSuspects])
     (fromList [(w, allSuspects) | w <- allWeapons])
     (fromList [(r, allSuspects) | r <- allRooms])
 
-
-
     
--- INITIAL SET-UP OF Notebook BY REMOVING ONESELF AND NPCS (AND ADDING CLUES)?
--- ADDING A Suggestion TO THE NOTEBOOK
+    -- Initial Notebook set-up: remove npcs and oneself as possible owners and then add one's own cards
+initNotebook :: [Suspect] -> Suspect -> [Card] -> Notebook -> Notebook
+initNotebook npcs owner cards nb = foldr (owns owner) (doNotOwn (owner:npcs) allCards nb) cards
 
--- WRITE TESTS FOR COMPLEX FUNCTIONS
 
+    -- Add a suggestion to Notebook
+addSuggestion :: Suggestion -> Notebook -> Notebook
+addSuggestion (Suggestion (Circumstances s w r) sugg unhe resv) nb
+    | null resvUnknownCs = nnb
+    | otherwise = Notebook (adjust (insert (S.fromList resvUnknownCs)) resv sC) sM wM rM
+        where nnb@(Notebook sC sM wM rM) = doNotOwn unhe suggCs  nb
+              resvUnknownCs = suggCs \\ otherKnownCs
+              (resvKnownCs, otherKnownCs) = playerOthersKnownCards resv nb
+              suggCs = [Sus s, Wea w, Roo r]
+
+
+-- Low-level Notebook Modifiers
 
     -- Add some Suspects not owning some Cards to the Notebook
     -- I.e.: Remove given possible owners from given equipment and the equipment cards from the owners
 doNotOwn :: [Suspect] -> [Card] -> Notebook -> Notebook
 doNotOwn suss cards (Notebook sC sM wM rM) = Notebook newSusCards newSMap newWMap newRMap
-    where newSusCards = foldr (adjust (map (\\ cards))) sC suss
+    where newSusCards = foldr (adjust (S.map (S.\\ cardSet))) sC suss
           newSMap = foldr (adjust (\\ suss)) sM ss
           newWMap = foldr (adjust (\\ suss)) wM ws
           newRMap = foldr (adjust (\\ suss)) rM rs
           (ss, ws, rs) = toEquip cards
+          cardSet = S.fromList cards
+
 
     -- Add a single certain newly-acquired clue to the Notebook
     -- I.e.: Set the Card's equipment owner to the player and add the owned card the owner
@@ -174,12 +216,12 @@ owns :: Suspect -> Card -> Notebook -> Notebook
 owns sus card (Notebook sC sM wM rM) = Notebook newSusCards newSMap newWMap newRMap 
     where newSusCards = mapWithKey updateOwners sC
           updateOwners s css
-            | s == sus  = if [card] `elem` css then css else [card]:css 
-            | otherwise = map (delete card) css
+            | s == sus  = insert (singleton card) css 
+            | otherwise = S.map (delete card) css
           (newSMap, newWMap, newRMap) = case card of
-            Sus s -> (adjust (\_-> [sus]) s sM, wM, rM)
-            Wea w -> (sM, adjust (\_-> [sus]) w wM, rM)
-            Roo r -> (sM, wM, adjust (\_-> [sus]) r rM)
+            Sus s -> (adjust (const [sus]) s sM, wM, rM)
+            Wea w -> (sM, adjust (const [sus]) w wM, rM)
+            Roo r -> (sM, wM, adjust (const [sus]) r rM)
 
 
 
@@ -208,3 +250,13 @@ data State = State { event :: Event,
 -- Invert a Map with guaranteed unique values
 invertMap :: Ord v => Map k v -> Map v k
 invertMap = fromList . map swap . toList
+
+
+    -- Return all singletons from a Set of Sets
+singletons :: Ord a => Set (Set a) -> [a]
+singletons = concat . S.map S.toList . S.filter ((== 1) . length)
+
+
+    -- Apply a function to both elements of a tuple
+tupleApply :: (a -> b) -> (a,a) -> (b,b)
+tupleApply f (x,y) = (f x, f y)
