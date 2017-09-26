@@ -182,7 +182,7 @@ emptyNotebook = Notebook
     
     -- Initial Notebook set-up: remove npcs and oneself as possible owners and then add one's own cards
 initNotebook :: [Suspect] -> Suspect -> [Card] -> Notebook -> Notebook
-initNotebook npcs owner cards nb = foldr (owns owner) (doNotOwn (owner:npcs) allCards nb) cards
+initNotebook npcs owner cards = foldr (owns owner) (doNotOwn (owner:npcs) allCards emptyNotebook) cards
 
 
     -- Add a suggestion to Notebook
@@ -230,7 +230,7 @@ owns sus card (Notebook sC sM wM rM) = Notebook newSusCards newSMap newWMap newR
 data LocationName = Corridor | StartOf Suspect | In Room
     deriving (Eq, Show, Read)
 
-data Location = Location { lName :: LocationName, distances :: Map Location Int }
+data Location = Location { lName :: LocationName, distances :: Map LocationName Int }
 
     -- Note that player statuses are set by giving them clues and by accusations
 data Event = GameStart | GiveClues Suspect [Card] | Roll Suspect Int | Move Suspect Location
@@ -242,6 +242,23 @@ data State = State { event :: Event,
                      notebooks :: Map Suspect Notebook,
                      susLocs :: Map Suspect Location,
                      weaLocs :: Map Weapon Location }
+
+
+-- Functions --
+
+initialState :: State
+initialState = State GameStart initialPlayers initialNotebooks initialSusLocs initialWeaLocs
+    where initialPlayers = fromList [(s, NPC) | s <- allSuspects]
+          initialNotebooks = fromList [(s, emptyNotebook) | s <- allSuspects] 
+          initialSusLocs = fromList [(s, StartOf s) | s <- allSuspects]
+          initialWeaLocs = fromList [(w, In (toEnum (fromEnum w) :: Room)) | w <- allWeapons]
+
+
+    -- Location Maps -- COMPLETE!!!!!!!!!!!!!!!
+startLocation :: Map Suspect Location
+startLocation = fromList [
+    (MissScarlett, fromList [(In Hall, 7)])
+]
 
 
 
